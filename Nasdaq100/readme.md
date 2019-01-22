@@ -1,1 +1,0 @@
-nasdaq100 padding
