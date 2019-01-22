@@ -226,7 +226,7 @@ class da_rnn:
     
 
 
-if __main__ == '__main__':
+if __name__ == '__main__':
     
     #Debug mode = T
     io_dir = '~/nasdaq'
