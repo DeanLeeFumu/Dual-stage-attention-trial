@@ -226,49 +226,51 @@ class da_rnn:
     
 
 
-#Debug mode = T
-io_dir = '~/nasdaq'
-model = da_rnn(file_data = 'D:/Python/DARNN/nasdaq100/small/nasdaq100_padding.csv'.format(io_dir),
-               debug = True, logger = logger, parallel = False,
-               early_stop = 100,
-               lstm_layers =3,
-               learning_rate = .001)
-
-
-model.train(n_epochs = 100)
-
-
-
-#load the best weights
-model.encoder.load_state_dict(torch.load(path_dir+'encoder_checkpoint.pt'))
-model.decoder.load_state_dict(torch.load(path_dir+'decoder_checkpoint.pt'))
-
-y_pred = model.predict()
-
-#training losses
-plt.figure()
-plt.semilogy(range(len(model.iter_losses)), model.iter_losses)
-plt.show()
-
-plt.figure()
-plt.semilogy(range(len(model.epoch_losses)), model.epoch_losses)
-plt.show()
-
-
-#check prediction
-
-
-plt.figure()
-plt.plot(y_pred, label = 'Predicted')
-plt.plot(model.y[model.train_size:], label = "True")
-plt.legend(loc = 'upper left')
-plt.show()
-
-##Before scale
-
-#y_pred = model.scaler_targ.inverse_transform(y_pred)
-#plt.figure()
-#plt.plot(y_pred, label = 'Predicted')
-#plt.plot(model.scaler_targ.inverse_transform(model.y[model.train_size:]), label = "True")
-#plt.legend(loc = 'upper left')
-#plt.show()
+if __main__ == '__main__':
+    
+    #Debug mode = T
+    io_dir = '~/nasdaq'
+    model = da_rnn(file_data = 'D:/Python/DARNN/nasdaq100/small/nasdaq100_padding.csv'.format(io_dir),
+                   debug = True, logger = logger, parallel = False,
+                   early_stop = 100,
+                   lstm_layers =3,
+                   learning_rate = .001)
+    
+    
+    model.train(n_epochs = 100)
+    
+    
+    
+    #load the best weights
+    model.encoder.load_state_dict(torch.load(path_dir+'encoder_checkpoint.pt'))
+    model.decoder.load_state_dict(torch.load(path_dir+'decoder_checkpoint.pt'))
+    
+    y_pred = model.predict()
+    
+    #training losses
+    plt.figure()
+    plt.semilogy(range(len(model.iter_losses)), model.iter_losses)
+    plt.show()
+    
+    plt.figure()
+    plt.semilogy(range(len(model.epoch_losses)), model.epoch_losses)
+    plt.show()
+    
+    
+    #check prediction
+    
+    
+    plt.figure()
+    plt.plot(y_pred, label = 'Predicted')
+    plt.plot(model.y[model.train_size:], label = "True")
+    plt.legend(loc = 'upper left')
+    plt.show()
+    
+    ##Before scale
+    
+    #y_pred = model.scaler_targ.inverse_transform(y_pred)
+    #plt.figure()
+    #plt.plot(y_pred, label = 'Predicted')
+    #plt.plot(model.scaler_targ.inverse_transform(model.y[model.train_size:]), label = "True")
+    #plt.legend(loc = 'upper left')
+    #plt.show()
