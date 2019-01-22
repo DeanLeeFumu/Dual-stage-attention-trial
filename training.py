@@ -31,7 +31,7 @@ use_cuda = torch.cuda.is_available()
 logger.info("Is CUDA available? %s.", use_cuda)
 
 lstm_layers =3
-path_dir = "D:/Python/DARNN/model monitor/
+path_dir = "D:/Python/DARNN/model monitor/"
 
 
 ## ONLY FOR TRAINS
