@@ -1,27 +1,29 @@
 
 
 import sys
-sys.path.append("D:/Python/DL tools") #or ur lib path
+sys.path.append("D:/Python/DL tools")
 sys.path.append("D:/Python/DARNN")
+import time
 import torch
 from torch import nn
 from torch.autograd import Variable
 from torch import optim
 import torch.nn.functional as F
 from sklearn import metrics
-from sklearn.preprocessing import StandardScaler
+from math import sqrt
+from Model_tanh import encoder,decoder
 
+from sklearn.preprocessing import StandardScaler
 import matplotlib
+
+from Earlystop_torch import EarlyStopping
 # matplotlib.use('Agg')
 get_ipython().magic(u'matplotlib inline')
 
 import datetime as dt, pandas as pd, matplotlib.pyplot as plt, numpy as np
 
-from Model import encoder,decoder
-from Earlystop_torch import EarlyStopping
 import utility as util
 global logger
-
 
 util.setup_log()
 logger = util.logger
@@ -60,13 +62,12 @@ def preprocess_data(dat, col_names):
 
 
 
-
-# Train the model
+## Train the model
 class da_rnn:
     def __init__(self, file_data,  logger, encoder_hidden_size = 64, decoder_hidden_size = 64, T = 10,targ_col = 'NDX',
                  learning_rate = 0.01, batch_size = 128,lstm_layers = 2, parallel = True, debug = False, early_stop = 10):
         self.T = T
-        dat = pd.read_csv(file_data ,nrows = 200 if debug else None )#if debug else None)
+        dat = pd.read_csv(file_data ,nrows = 300 if debug else None )#if debug else None)
         self.targ_col = targ_col
         self.dat ,self.scalers = preprocess_data(dat,(self.targ_col,))
         self.scaler_train = self.scalers[0]
@@ -124,7 +125,7 @@ class da_rnn:
         for i in range(n_epochs):
             perm_idx = np.random.permutation(self.train_size - self.T)
             j = 0
-            while j < self.train_size:
+            while j < self.train_size - self.T: # matching length same as perm_idx 
                 batch_idx = perm_idx[j:(j + self.batch_size)]
                 X = np.zeros((len(batch_idx), self.T - 1, self.X.shape[1]))
                 y_history = np.zeros((len(batch_idx), self.T - 1)) #input T =9 id:0~8
@@ -141,7 +142,7 @@ class da_rnn:
                 #    self.logger.info("Epoch %d, Batch %d: loss = %3.3f.", i, j / self.batch_size, loss)
                 j += self.batch_size
                 n_iter += 1
-
+                
                 if n_iter % 10000 == 0 and n_iter > 0:
                     for param_group in self.encoder_optimizer.param_groups:
                         param_group['lr'] = param_group['lr'] * 0.9
@@ -155,8 +156,7 @@ class da_rnn:
                         param_group['lr'] = param_group['lr'] * .9
                     learning_rate *= .9
                 '''
-
-
+                
             self.epoch_losses[i] = np.mean(self.iter_losses[range(i * iter_per_epoch, (i + 1) * iter_per_epoch)])
 
             ##valid set losses sklearn ver.
@@ -164,10 +164,10 @@ class da_rnn:
 #            print("shapes: ",y_test_pred.shape,y_val_target.shape)
             self.valy_test_pred = y_test_pred
             self.y_val_target = y_val_target
-            epoch_val_loss = metrics.mean_absolute_error(y_pred = y_test_pred[:-1], y_true = y_val_target)
+            epoch_val_loss = sqrt(metrics.mean_squared_error(y_pred = y_test_pred[:-1], y_true = y_val_target))
+            #RMSE
             
-            
-            self.Valid_losses[i] =  epoch_val_loss#.cpu().numpy()
+            self.Valid_losses[i] =  epoch_val_loss
             #early stop 
             self.stop = self.stopper.step(self.Valid_losses[i])
             #encoder & decoder saver
@@ -175,34 +175,43 @@ class da_rnn:
             self.stopper.savemodel(self.Valid_losses[i],self.decoder,'decoder')
 
 
-            if i % 10 == 0:
+            if i % 1 == 0 or i == 0:
                 self.logger.info("Epoch %d, loss: %3.3f., Val_loss: %3.3f.", i, self.epoch_losses[i], self.Valid_losses[i])
 
-            if i % 10 == 0:
+            if i % 20 == 1 or i == 0:
                 y_train_pred = self.predict(on_train = True)
-                y_test_pred = self.predict(on_train = False)
-                y_pred = np.concatenate((y_train_pred, y_test_pred))
-                self.y_pred =y_pred
+#                y_test_pred = self.predict(on_train = False)
+                #y_pred = np.concatenate((y_train_pred, y_test_pred))
+#                self.y_pred =y_pred
                 plt.figure()
-                plt.bar(range(1, 1 + len(self.y)), self.y, label = "True")
-                plt.bar(range(self.T , len(y_train_pred) + self.T), y_train_pred, label = 'Predicted - Train')
-                plt.bar(range(self.T + len(y_train_pred[:-1]) , len(self.y) ), y_test_pred[:-1], label = 'Predicted - Test')
+#                plt.plot(range(1, 1 + len(self.y)), self.y, label = "True")
+#                plt.plot(range(self.T , len(y_train_pred) + self.T), y_train_pred, label = 'Predicted - Train')
+#                plt.plot(range(self.T + len(y_train_pred[:-1]) , len(self.y) ), y_test_pred[:-1], label = 'Predicted - Test')
+                plt.plot(self.y[self.T:50+self.T], label = "True")
+                plt.plot(y_train_pred[:50], label = "train")
                 plt.legend(loc = 'upper left')
+                plt.show()
+                plt.figure()
+                plt.plot(self.y_val_target[:50], label = "True")
+                plt.plot(self.valy_test_pred[:50], label = "train")
                 plt.show()
                 
             if self.stop:
-                self.logger.info("Early_stop Epoch at %d,best loss: %3.3f., best Val_loss: %3.3f.", i, self.epoch_losses[i-9], self.Valid_losses[i-9])
+                self.logger.info("Early_stop Epoch at %d,best loss: %3.3f., best Val_loss: %3.3f.", i, self.epoch_losses[i-self.earlystop], self.Valid_losses[i-self.earlystop])
                 break
 
     def train_iteration(self, X, y_history, y_target):
         self.encoder_optimizer.zero_grad()
         self.decoder_optimizer.zero_grad()
 
-        input_weighted, input_encoded = self.encoder(Variable(torch.from_numpy(X).type(torch.FloatTensor).cuda()))
+        input_weighted, input_encoded = self.encoder(Variable(torch.from_numpy(X).type(torch.FloatTensor).cuda()))#!!!Stopped right here!!!
+
         y_pred = self.decoder(input_encoded, Variable(torch.from_numpy(y_history).type(torch.FloatTensor).cuda()))#y_hist(T = 0~9) predict y_pred(T = 10)
 
         y_true = Variable(torch.from_numpy(y_target).type(torch.FloatTensor).cuda())#y_true (T = 10)
-        loss = self.loss_func(y_pred,y_true[:,np.newaxis])
+
+        loss = torch.sqrt(self.loss_func(y_pred,y_true[:,np.newaxis])) #MSE to RMSE
+
         loss.backward()
 
         self.encoder_optimizer.step()
@@ -217,12 +226,15 @@ class da_rnn:
     def predict(self, on_train = False):
         if on_train:
             y_pred = np.zeros(self.train_size - self.T + 1)
+            val_batch_size = self.batch_size
         else:
             y_pred = np.zeros(self.X.shape[0] - self.train_size+1)
+            ### faster prediction
+            val_batch_size = self.batch_size*3
 
         i = 0
         while i < len(y_pred):
-            batch_idx = np.array(range(len(y_pred)))[i : (i + self.batch_size)]
+            batch_idx = np.array(range(len(y_pred)))[i : (i + val_batch_size)]
             X = np.zeros((len(batch_idx), self.T - 1, self.X.shape[1]))
             y_history = np.zeros((len(batch_idx), self.T - 1))
             for j in range(len(batch_idx)):
@@ -237,11 +249,14 @@ class da_rnn:
 
             y_history = Variable(torch.from_numpy(y_history).type(torch.FloatTensor).cuda())
             _, input_encoded = self.encoder(Variable(torch.from_numpy(X).type(torch.FloatTensor).cuda()))
-            y_pred[i:(i + self.batch_size)] = self.decoder(input_encoded, y_history).cpu().data.numpy()[:, 0] # predict y_pred(T = 0)
-            i += self.batch_size
+            y_pred[i:(i + val_batch_size)] = self.decoder(input_encoded, y_history).cpu().data.numpy()[:, 0] # predict y_pred(T = 0)
+            i +=  val_batch_size
         return y_pred
 
-    def predict_New_Value(self, newdata, input_targ_col, input_batch):
+
+
+
+    def predict_New_Value(self, newdata, input_targ_col, sequence = 10):
         TA = (input_targ_col,)
         mask = np.ones(newdata.shape[1], dtype=bool)
         dat_cols = list(newdata.columns)
@@ -250,28 +265,54 @@ class da_rnn:
         newdata = np.array(newdata)
         
         trains = newdata[:, mask]
-        targs = newdata[:, ~mask] 
+        targs = newdata[:, ~mask]
         trains = self.scaler_train.transform(trains)
         targs = self.scaler_targ.transform(targs).reshape(-1)
         
-        y_pred = np.zeros(trains.shape[0])
+        
+        if sequence:
+            print("Predict next:",sequence,"on self predictions.")
+            y_pred = np.zeros(sequence+1) #多留一格預測未來的output
+            batch_idx = np.array(range(trains.shape[0]))[0 : (newdata.shape[0])]
     
-        i = 0
-        while i < len(y_pred):
-            batch_idx = np.array(range(trains.shape[0]))[i : (i + newdata.shape[0])]
-            X = np.zeros((len(batch_idx)-self.T+2, self.T - 1, trains.shape[1]))# X(input - T + 2,T-1,col_num) ===> input-(T-1)個值可以預測下一個, 最後一筆會預測未來input_batch+1 共 12個
-            y_history = np.zeros((len(batch_idx)-self.T+2, self.T - 1))
-            for j in range(len(batch_idx)-self.T+2):
-                ###
-                X[j, :, :] = trains[range(batch_idx[j], batch_idx[j] + self.T - 1), :]
-                y_history[j, :] = targs[range(batch_idx[j],  batch_idx[j]+ self.T - 1)] # y_hist(T = 0~9)
-               
-            y_history = Variable(torch.from_numpy(y_history).type(torch.FloatTensor).cuda())
-            _, input_encoded = self.encoder(Variable(torch.from_numpy(X).type(torch.FloatTensor).cuda()))
-#            y_pred[i:(i + newdata.shape[0])-self.T+2] = self.decoder(input_encoded, y_history).cpu().data.numpy()[:, 0] 
-            y_pred[i+self.T-2:(i + input_batch)]  = self.decoder(input_encoded, y_history).cpu().data.numpy()[:, 0] 
-            i += newdata.shape[0]
-        return y_pred[self.T-2:]   #!!!!!!Output select!!!!!! 
+            j = 0
+            while j<= len(y_pred)-1: #loop的時候減ˋ回來
+                X = np.zeros((1, self.T - 1, trains.shape[1]))
+                y_history = np.zeros((1, self.T - 1))
+    
+                X[0, :, :] = trains[range(batch_idx[j], batch_idx[j] + self.T - 1), :]
+                #y_history[0, :] = np.append(targs[range(batch_idx[j],  batch_idx[j]+ self.T - 1-j)],y_pred[:j]) # y_hist(T = 0~9)
+                if j < self.T:
+                    y_history[0, :] = np.append(targs[range(batch_idx[j],  batch_idx[j]+ self.T - 1-j)],y_pred[:j]) # y_hist(T = 0~9)
+                else:
+                    y_history[0, :] = np.append(targs[range(batch_idx[j],  batch_idx[j]+ self.T - 1-j)],y_pred[j-self.T+1:j])
+
+                y_history = Variable(torch.from_numpy(y_history).type(torch.FloatTensor).cuda())
+                _, input_encoded = self.encoder(Variable(torch.from_numpy(X).type(torch.FloatTensor).cuda()))
+                y_pred[j]  = self.decoder(input_encoded, y_history).cpu().data.numpy()[:, 0] 
+                j+=1
+                
+            return y_pred
+        else:
+            print("Predict",newdata.shape[0],"values on every y_true.")
+            y_pred = np.zeros(trains.shape[0])
+            i = 0
+            while i < len(y_pred):
+                batch_idx = np.array(range(trains.shape[0]))[i : (i + newdata.shape[0])]
+                X = np.zeros((len(batch_idx)-self.T+2, self.T - 1, trains.shape[1]))# X(input - T + 2, T-1, col_num) ===> input-(T-1) values to predict next value, the last will predict the future value input_batch+1, toal 12(if T = 10)
+                y_history = np.zeros((len(batch_idx)-self.T+2, self.T - 1))
+                for j in range(len(batch_idx)-self.T+2):
+                    ###
+                    X[j, :, :] = trains[range(batch_idx[j], batch_idx[j] + self.T - 1), :]
+                    y_history[j, :] = targs[range(batch_idx[j],  batch_idx[j]+ self.T - 1)] # y_hist(T = 0~9)
+                   
+                y_history = Variable(torch.from_numpy(y_history).type(torch.FloatTensor).cuda())
+                _, input_encoded = self.encoder(Variable(torch.from_numpy(X).type(torch.FloatTensor).cuda()))
+    #            y_pred[i:(i + newdata.shape[0])-self.T+2] = self.decoder(input_encoded, y_history).cpu().data.numpy()[:, 0] 
+                y_pred[i+self.T-2:(i + newdata.shape[0])]  = self.decoder(input_encoded, y_history).cpu().data.numpy()[:, 0] 
+                i += newdata.shape[0]
+            return y_pred[self.T-2:]   #!Output selection! 
+
 
 
 if __name__ == '__main__':
@@ -287,8 +328,12 @@ if __name__ == '__main__':
                    lstm_layers =2,
                    learning_rate = .005)
     
-    
-    model.train(n_epochs = 30)
+    model.stopper.path_dir = 'ur path'
+    startT = time.time()
+    model.train(n_epochs = 800)
+    endT = time.time()
+    duration = endT - startT
+
     
     
     #load the best weights
@@ -338,23 +383,44 @@ if __name__ == '__main__':
 #    np.min([model.scaler_targ.inverse_transform(model.y[model.train_size:]) - y_pred[:-1]])
 #    model.Valid_losses
 #    
-    ##Predict new value func test
-    
-#    newdata = dat.iloc[-100:,:]
-#    nexts = model.predict_New_Value(newdata, input_targ_col = 'AAPL', input_batch = newdata.shape[0])
+
+
+
+     ## Debug data: sine & cosine
+#    dat = pd.read_csv('D:/Python/DARNN/nasdaq100/small/nasdaq100_padding.csv')
+#    x = np.arange(0,15*np.pi,0.1)[:,np.newaxis]   # start,stop,step
+#    x1 = np.sin(x)
+#   x2 = np.cos(x)
+#    newdata = np.hstack((x1,x2))
+#    newdata = pd.DataFrame(newdata)
+#    newdata.columns = np.array(dat.columns)[[0,81]]
+
+
+     ## predict new level sequence
+#    dat = pd.read_csv('D:/Python/DARNN/nasdaq100/small/nasdaq100_padding.csv')
+#    lastTs = 49
+#    newdatas = dat.iloc[-lastTs:,:]
+#    nexts = model.predict_New_Value(newdatas, input_targ_col = 'NDX',sequence = lastTs-(model.T-1))
 #    nexts.shape
+#    model.y[-(lastTs-model.T+1):].shape
 #    plt.figure()
-#    plt.plot(nexts[:-1], label = 'Predicted')
-#    plt.plot(model.y[-91:], label = "True")
+#    plt.plot(model.scaler_targ.inverse_transform(nexts[:-1]), label = 'Predicted')
+#    plt.plot(model.scaler_targ.inverse_transform(model.y[-(lastTs-model.T+1):]), label = "True")
+#    plt.plot(model.scaler_train.inverse_transform(model.X[-(lastTs-model.T+1):]), label = "X")
+#    plt.plot(np.array(newdata[-(lastTs-model.T+1):]), label = "Oringinal")
+#    plt.legend(loc = 'upper left')
+#    plt.show()
+
+
+     ## predict new level based on true
+#    nexts = model.predict_New_Value(newdatas, input_targ_col = 'NDX',sequence = False)
+#    nexts.shape
+#    model.y[-(lastTs-model.T+1):].shape
+#    plt.figure()
+#    plt.plot(model.scaler_targ.inverse_transform(nexts[:-1]), label = 'Predicted')
+#    plt.plot(model.scaler_targ.inverse_transform(model.y[-(lastTs-model.T+1):]), label = "True")
+#    #plt.plot(model.scaler_train.inverse_transform(model.X[-(lastTs-model.T+1):]), label = "X")
+#    #plt.plot(np.array(newdata[-(lastTs-model.T+1):]), label = "Oringinal")
 #    plt.legend(loc = 'upper left')
 #    plt.show()
 #    
-#    model.scaler_targ.inverse_transform(nexts)
-#    StandardScaler.inverse_transform
-#    y_pred = model.scaler_targ.inverse_transform(y_pred)
-#    nexts.shape
-#    plt.figure()
-#    plt.bar(range(len(nexts[:-1])),model.scaler_targ.inverse_transform(nexts[:-1]), label = 'Predicted')
-#    plt.plot(model.scaler_targ.inverse_transform(model.y[-91:]), label = "True")
-#    plt.legend(loc = 'upper left')
-#    plt.show()
