@@ -19,10 +19,9 @@ class encoder(nn.Module):
         self.layers = layers
 
         self.logger = logger
-
+        self.attn_linear = nn.Sequential(nn.Linear(in_features = 2 * hidden_size + T - 1, out_features = 1),nn.Tanh())
         self.lstm_layer = nn.LSTM(input_size = input_size, hidden_size = hidden_size, num_layers = layers)
-        self.attn_linear = nn.Linear(in_features = 2 * hidden_size + T - 1, out_features = 1)
-
+     
     def forward(self, input_data):
         #print("input_data",input_data.size())
         # input_data: batch_size * T - 1 * input_size
@@ -40,9 +39,9 @@ class encoder(nn.Module):
                            input_data.permute(0, 2, 1)), dim = 2) # batch_size * input_size * (2*hidden_size + T - 1)
             #print("xsize: ",x.size())
             # Eqn. 8: Get attention weights
-            x = self.attn_linear(x.view(-1, self.hidden_size * 2 + self.T - 1)) # (batch_size * input_size) * 1
+            x2 = self.attn_linear(x.view(-1, self.hidden_size * 2 + self.T - 1)) # (batch_size * input_size) * 1
             # Eqn. 9: Get attention weights
-            attn_weights = F.softmax(x.view(-1, self.input_size), dim=1) # batch_size * input_size, attn weights with values sum up to 1.
+            attn_weights = F.softmax(x2.view(-1, self.input_size), dim=1) # batch_size * input_size, attn weights with values sum up to 1.
             # Eqn. 10: LSTM
             weighted_input = torch.mul(attn_weights, input_data[:, t, :]) # batch_size * input_size
             # Fix the warning about non-contiguous memory
