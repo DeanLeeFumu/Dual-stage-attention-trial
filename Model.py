@@ -3,12 +3,13 @@ from torch import nn
 from torch.autograd import Variable
 from torch import optim
 import torch.nn.functional as F
+import pandas as pd
+import numpy as np
 lstm_layers =3
 path_dir = "D:/Python/DARNN/model monitor/"
 
-
 class encoder(nn.Module):
-    def __init__(self, input_size, hidden_size, T, logger, layers = lstm_layers):
+    def __init__(self, input_size, hidden_size, T, layers = lstm_layers):
         # input size: number of underlying factors (81)
         # T: number of time steps (10)
         # hidden_size: dimension of the hidden state
@@ -18,8 +19,8 @@ class encoder(nn.Module):
         self.T = T
         self.layers = layers
 
-        self.logger = logger
-        self.attn_linear = nn.Sequential(nn.Linear(in_features = 2 * hidden_size + T - 1, out_features = 1),nn.Tanh())
+        self.attn_linear = nn.Linear(in_features = hidden_size*2 , out_features =  hidden_size*2)
+        self.attn_combine = nn.Sequential(nn.Linear(hidden_size*2+T-1,out_features = 1 ),nn.Tanh())
         self.lstm_layer = nn.LSTM(input_size = input_size, hidden_size = hidden_size, num_layers = layers)
      
     def forward(self, input_data):
@@ -28,19 +29,29 @@ class encoder(nn.Module):
         input_weighted = Variable(input_data.data.new(input_data.size(0), self.T - 1, self.input_size).zero_())
         input_encoded = Variable(input_data.data.new(input_data.size(0), self.T - 1, self.hidden_size).zero_())
         # hidden, cell: initial states with dimention hidden_size
+        
         hidden = self.init_hidden(input_data) # layers * batch_size * hidden_size
+    
         cell = self.init_hidden(input_data)
         # hidden.requires_grad = False
         # cell.requires_grad = False
         for t in range(self.T - 1):
             # Eqn. 8: concatenate the hidden states with each predictor
             x = torch.cat((hidden[0,:,:].repeat(self.input_size, 1, 1).permute(1, 0, 2),
-                           cell[0,:,:].repeat(self.input_size, 1, 1).permute(1, 0, 2),
-                           input_data.permute(0, 2, 1)), dim = 2) # batch_size * input_size * (2*hidden_size + T - 1)
+                           cell[0,:,:].repeat(self.input_size, 1, 1).permute(1, 0, 2)),
+                           dim = 2) # batch_size * input_size * (2*hidden_size + T - 1)
+    
+           
+            input_data_permuted = input_data.permute(0, 2, 1)
             #print("xsize: ",x.size())
-            # Eqn. 8: Get attention weights
-            x2 = self.attn_linear(x.view(-1, self.hidden_size * 2 + self.T - 1)) # (batch_size * input_size) * 1
-            # Eqn. 9: Get attention weights
+ 
+            # Eqn. 8: Get attention weights == Tanh(W*[h(t-1) ; s(t-1)] + U*X(k)))])
+            
+            x = torch.cat((self.attn_linear(x.view(-1, self.hidden_size*2 )),input_data_permuted.contiguous().view(-1, self.T-1 )),dim = 1)
+           
+            x2 = self.attn_combine(x)
+            
+            # Eqn. 9: SoftMax to make weights sum to 1
             attn_weights = F.softmax(x2.view(-1, self.input_size), dim=1) # batch_size * input_size, attn weights with values sum up to 1.
             # Eqn. 10: LSTM
             weighted_input = torch.mul(attn_weights, input_data[:, t, :]) # batch_size * input_size
@@ -61,7 +72,7 @@ class encoder(nn.Module):
 
     def init_hidden(self, x):
         # No matter whether CUDA is used, the returned variable will have the same type as x.
-        return Variable(x.data.new(self.layers, x.size(0), self.hidden_size).zero_()) # dimension 0 is the batch dimension
+        return Variable(x.data.new(self.layers , x.size(0), self.hidden_size).zero_()) # dimension 0 is the batch dimension
 
 class decoder(nn.Module):
     def __init__(self, encoder_hidden_size, decoder_hidden_size, T, layers = lstm_layers, out_feats=1):
